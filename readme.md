@@ -1,14 +1,13 @@
 
-# Sentinel
-## Self-Healing Blue-Green Deployment Platform on AWS
+# Sentinel - Self-Healing Blue-Green Deployment Platform on AWS
 
 A cloud-based DevOps platform demonstrating automated infrastructure provisioning, Blue-Green application deployment, configuration management, continuous monitoring, and automated recovery.
 
 ### Core Technologies
-- Terraform — Infrastructure as Code
-- Ansible — Deployment and orchestration
-- Puppet — Configuration management
-- Nagios Core — Monitoring and recovery
+- Terraform - Infrastructure as Code
+- Ansible - Deployment and orchestration
+- Puppet - Configuration management
+- Nagios Core - Monitoring and recovery
 
 ### Supporting Technologies
 - AWS EC2, VPC, IAM, SSM, S3
