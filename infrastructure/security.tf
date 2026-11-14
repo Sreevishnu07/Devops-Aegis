@@ -41,7 +41,7 @@ resource "aws_vpc_security_group_ingress_rule" "ops_ssh" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "ops_nagios_ui" {
-  count = var.admin_cidr != null && var.ec2_key_name != null ? 1 : 0
+  count = var.admin_cidr != null ? 1 : 0
 
   security_group_id = aws_security_group.operations.id
   description       = "Nagios web interface; administrator IP only."
