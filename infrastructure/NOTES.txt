@@ -1,0 +1,9 @@
+The contains:
+- infrastructure/bootstrap-state/*.tf : one-time S3 remote-state bucket bootstrap
+- infrastructure/*.tf                : main VPC, security, IAM and EC2 configuration
+- infrastructure/cloud-init/ssm-agent.sh
+- infrastructure/backend.hcl.example
+- infrastructure/terraform.tfvars.example
+- infrastructure/README.md
+
+
