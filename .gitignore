@@ -26,3 +26,4 @@ venv/
 .idea/
 
 *.log
+ansible/inventory/hosts.ini

@@ -1,0 +1,16 @@
+[blue]
+sentinel-blue ansible_host=10.20.1.222
+
+[green]
+sentinel-green ansible_host=10.20.2.253
+
+[application:children]
+blue
+green
+
+[application:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=/home/ubuntu/.ssh/id_ed25519
+ansible_python_interpreter=/usr/bin/python3
+
+
