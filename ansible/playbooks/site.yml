@@ -1,0 +1,30 @@
+---
+- name: Deploy Sentinel application to Blue
+  hosts: blue
+  become: true
+  gather_facts: true
+  vars:
+    app_version: "1.0.0"
+    app_source_dir: "{{ playbook_dir }}/../../application"
+  roles:
+    - application
+
+- name: Deploy Sentinel application to Green
+  hosts: green
+  become: true
+  gather_facts: true
+  vars:
+    app_version: "1.0.0"
+    app_source_dir: "{{ playbook_dir }}/../../application"
+  roles:
+    - application
+
+- name: Initially route public traffic to Blue
+  hosts: ops
+  connection: local
+  become: true
+  gather_facts: false
+  vars:
+    nginx_active_environment: blue
+  roles:
+    - nginx_router

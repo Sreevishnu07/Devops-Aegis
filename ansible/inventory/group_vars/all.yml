@@ -1,0 +1,14 @@
+---
+ansible_user: ubuntu
+ansible_ssh_private_key_file: /home/ubuntu/.ssh/id_ed25519
+ansible_python_interpreter: /usr/bin/python3
+
+app_name: sentinel
+app_root: /opt/sentinel
+app_user: sentinel
+app_group: sentinel
+app_port: 8000
+app_version: "1.0.0"
+app_release_root: "{{ app_root }}/releases"
+app_current_path: "{{ app_root }}/current"
+app_service_name: sentinel-app

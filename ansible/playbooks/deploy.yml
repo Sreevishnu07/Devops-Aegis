@@ -1,0 +1,11 @@
+---
+- name: Deploy Sentinel application to one selected environment
+  hosts: "{{ target_group | default('blue') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    app_version: "{{ release_version | default('1.0.0') }}"
+    app_source_dir: "{{ playbook_dir }}/../../application"
+  roles:
+    - application

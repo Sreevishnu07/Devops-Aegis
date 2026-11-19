@@ -1,0 +1,22 @@
+[Unit]
+Description=Sentinel Flask application ({{ app_environment }})
+After=network.target
+
+[Service]
+Type=simple
+User={{ app_user }}
+Group={{ app_group }}
+WorkingDirectory={{ app_current_path }}
+Environment=PYTHONUNBUFFERED=1
+Environment=SENTINEL_APP_VERSION={{ app_version }}
+Environment=SENTINEL_ENVIRONMENT={{ app_environment }}
+ExecStart={{ app_current_path }}/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:{{ app_port }} sentinel_app:create_app()
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

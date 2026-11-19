@@ -1,0 +1,95 @@
+---
+- name: Validating requested active environment
+  ansible.builtin.assert:
+    that:
+      - nginx_active_environment in ["blue", "green"]
+    fail_msg: "nginx_active_environment must be blue or green."
+
+- name: Resolving selected application node
+  ansible.builtin.set_fact:
+    nginx_active_host: "{{ 'sentinel-' ~ nginx_active_environment }}"
+    nginx_active_ip: "{{ hostvars['sentinel-' ~ nginx_active_environment].ansible_host }}"
+
+- name: Verifing candidate environment before changing public traffic
+  ansible.builtin.uri:
+    url: "http://{{ nginx_active_ip }}:{{ app_port }}/health"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: candidate_health
+  retries: 5
+  delay: 2
+  until: candidate_health.status == 200
+
+- name: Verifing candidate environment identity
+  ansible.builtin.assert:
+    that:
+      - candidate_health.json.status == "healthy"
+      - candidate_health.json.environment == nginx_active_environment
+    fail_msg: "Refusing to route traffic: selected backend is not healthy or has the wrong environment identity."
+
+- name: Install Nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Removing Ubuntu default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+
+- name: Installing Sentinel Nginx virtual host
+  ansible.builtin.template:
+    src: sentinel.conf.j2
+    dest: /etc/nginx/sites-available/sentinel
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enabling Sentinel Nginx virtual host
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/sentinel
+    dest: /etc/nginx/sites-enabled/sentinel
+    state: link
+
+- name: Validating Nginx configuration before reload
+  ansible.builtin.command:
+    argv:
+      - nginx
+      - -t
+  changed_when: false
+
+- name: Enable and reload Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: reloaded
+
+- name: Verify public router health endpoint locally
+  ansible.builtin.uri:
+    url: http://127.0.0.1/nginx-health
+    status_code: 200
+    return_content: true
+  register: router_health
+  retries: 5
+  delay: 2
+  until: router_health.status == 200
+
+- name: Verify traffic reaches selected application environment
+  ansible.builtin.uri:
+    url: http://127.0.0.1/version
+    status_code: 200
+    return_content: true
+  register: routed_version
+  retries: 5
+  delay: 2
+  until: routed_version.status == 200
+
+- name: Assert Nginx routes to the selected environment
+  ansible.builtin.assert:
+    that:
+      - routed_version.json.environment == nginx_active_environment
+    fail_msg: "Nginx responded, but traffic did not reach the selected environment."
+    success_msg: "Nginx is routing traffic to {{ nginx_active_environment }} ({{ nginx_active_ip }})."

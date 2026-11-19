@@ -1,0 +1,11 @@
+---
+app_version: "1.0.0"
+app_port: 8000
+app_root: /opt/sentinel
+app_user: sentinel
+app_group: sentinel
+app_service_name: sentinel-app
+app_release_root: "{{ app_root }}/releases"
+app_current_path: "{{ app_root }}/current"
+app_release_path: "{{ app_release_root }}/{{ app_version }}"
+app_source_dir: "{{ playbook_dir }}/../../application"

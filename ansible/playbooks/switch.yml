@@ -1,0 +1,10 @@
+---
+- name: Safely switch public traffic to a healthy Sentinel environment
+  hosts: ops
+  connection: local
+  become: true
+  gather_facts: false
+  vars:
+    nginx_active_environment: "{{ target_environment | default('blue') }}"
+  roles:
+    - nginx_router
