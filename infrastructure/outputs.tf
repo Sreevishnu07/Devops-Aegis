@@ -33,7 +33,7 @@ output "application_security_group_id" {
 
 output "ubuntu_ami_id" {
   description = "Canonical Ubuntu 22.04 LTS AMI selected for this region."
-  value       = data.aws_ami.ubuntu_jammy.id
+  value       = var.ubuntu_ami_id
 }
 
 output "ops_instance_id" {

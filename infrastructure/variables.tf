@@ -81,3 +81,7 @@ variable "root_volume_size" {
     error_message = "root_volume_size must be between 8 and 100 GiB."
   }
 }
+variable "ubuntu_ami_id" {
+  description = "Pinned Ubuntu 22.04 AMI ID for Sentinel instances."
+  type        = string
+}

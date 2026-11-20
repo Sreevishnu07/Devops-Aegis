@@ -1,5 +1,5 @@
 resource "aws_instance" "ops" {
-  ami                         = data.aws_ami.ubuntu_jammy.id
+  ami                         = var.ubuntu_ami_id
   instance_type               = var.ops_instance_type
   subnet_id                   = aws_subnet.public_a.id
   vpc_security_group_ids      = [aws_security_group.operations.id]
@@ -27,7 +27,7 @@ resource "aws_instance" "ops" {
 }
 
 resource "aws_instance" "blue" {
-  ami                         = data.aws_ami.ubuntu_jammy.id
+  ami                         = var.ubuntu_ami_id
   instance_type               = var.app_instance_type
   subnet_id                   = aws_subnet.public_a.id
   vpc_security_group_ids      = [aws_security_group.application.id]
@@ -55,7 +55,7 @@ resource "aws_instance" "blue" {
 }
 
 resource "aws_instance" "green" {
-  ami                         = data.aws_ami.ubuntu_jammy.id
+  ami                         = var.ubuntu_ami_id
   instance_type               = var.app_instance_type
   subnet_id                   = aws_subnet.public_b.id
   vpc_security_group_ids      = [aws_security_group.application.id]
