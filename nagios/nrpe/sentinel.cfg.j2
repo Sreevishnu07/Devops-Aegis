@@ -1,0 +1,6 @@
+# Sentinel fixed NRPE commands for {{ app_environment }}.
+# No remote command arguments are accepted; each command is explicitly defined.
+command[check_sentinel_app]=/usr/bin/python3 /usr/local/lib/nagios/plugins/check_sentinel_app.py --expected-environment {{ app_environment }}
+command[check_sentinel_load]=/usr/lib/nagios/plugins/check_load -w 2.0,1.5,1.0 -c 4.0,3.0,2.0
+command[check_sentinel_disk]=/usr/lib/nagios/plugins/check_disk -w 20% -c 10% -p /
+command[check_sentinel_gunicorn]=/usr/lib/nagios/plugins/check_procs -w 1: -c 1: -C gunicorn

@@ -1,0 +1,2 @@
+# Permit Nagios to invoke only the root-owned, input-validating Sentinel recovery wrapper.
+nagios ALL=(root) NOPASSWD: /usr/local/sbin/sentinel-recover *

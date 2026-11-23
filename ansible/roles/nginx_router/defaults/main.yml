@@ -1,3 +1,6 @@
 ---
 nginx_active_environment: blue
 app_port: 8000
+nginx_active_state_file: /var/lib/sentinel/active-environment
+
+

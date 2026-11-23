@@ -1,0 +1,116 @@
+---
+- name: Configure NRPE agents and fixed Sentinel checks on Blue and Green
+  hosts: application
+  become: true
+  gather_facts: true
+  vars:
+    nagios_server_private_ip: "10.20.1.22"
+    nagios_nrpe_config_dir: /etc/nagios/nrpe.d
+    nagios_plugin_dir: /usr/local/lib/nagios/plugins
+  tasks:
+    - name: Install NRPE server and standard monitoring plugins
+      ansible.builtin.apt:
+        name:
+          - nagios-nrpe-server
+          - monitoring-plugins
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure NRPE drop-in directory exists
+      ansible.builtin.file:
+        path: "{{ nagios_nrpe_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Ensure the Sentinel local Nagios plugin directory exists
+      ansible.builtin.file:
+        path: "{{ nagios_plugin_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the Sentinel application health plugin
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../nagios/plugins/check_sentinel_app.py"
+        dest: "{{ nagios_plugin_dir }}/check_sentinel_app.py"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install fixed NRPE command definitions for this environment
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../../nagios/nrpe/sentinel.cfg.j2"
+        dest: "{{ nagios_nrpe_config_dir }}/sentinel.cfg"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart NRPE
+
+    - name: Bind NRPE to this application's private IPv4 address
+      ansible.builtin.lineinfile:
+        path: /etc/nagios/nrpe.cfg
+        regexp: '^server_address='
+        line: "server_address={{ ansible_host }}"
+        backup: true
+      notify: Restart NRPE
+
+    - name: Ensure NRPE listens on TCP 5666
+      ansible.builtin.lineinfile:
+        path: /etc/nagios/nrpe.cfg
+        regexp: '^server_port='
+        line: "server_port=5666"
+        backup: true
+      notify: Restart NRPE
+
+    - name: Restrict NRPE clients to localhost and sentinel-ops
+      ansible.builtin.lineinfile:
+        path: /etc/nagios/nrpe.cfg
+        regexp: '^allowed_hosts='
+        line: "allowed_hosts=127.0.0.1,{{ nagios_server_private_ip }}"
+        backup: true
+      notify: Restart NRPE
+
+    - name: Disable remote NRPE command arguments
+      ansible.builtin.lineinfile:
+        path: /etc/nagios/nrpe.cfg
+        regexp: '^dont_blame_nrpe='
+        line: "dont_blame_nrpe=0"
+        backup: true
+      notify: Restart NRPE
+
+    - name: Ensure NRPE loads configuration drop-ins
+      ansible.builtin.lineinfile:
+        path: /etc/nagios/nrpe.cfg
+        regexp: '^include_dir='
+        line: "include_dir={{ nagios_nrpe_config_dir }}/"
+        insertafter: EOF
+        backup: true
+      notify: Restart NRPE
+
+    - name: Enable and start NRPE
+      ansible.builtin.systemd:
+        name: nagios-nrpe-server
+        enabled: true
+        state: started
+
+    - name: Apply NRPE configuration changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Verify NRPE is listening on TCP 5666
+      ansible.builtin.wait_for:
+        port: 5666
+        host: "{{ ansible_host }}"
+        state: started
+        timeout: 15
+      delegate_to: localhost
+      become: false
+
+  handlers:
+    - name: Restart NRPE
+      ansible.builtin.systemd:
+        name: nagios-nrpe-server
+        state: restarted

@@ -1,0 +1,21 @@
+# The installer generates contacts.cfg locally from an email address prompt.
+# Do not commit a real email address if you prefer to keep it out of GitHub.
+
+define contact {
+    use                             generic-contact
+    contact_name                    sentinel-admin
+    alias                           Sentinel Administrator
+    email                           REPLACE_WITH_YOUR_EMAIL
+    service_notification_period     24x7
+    host_notification_period        24x7
+    service_notification_options    w,u,c,r
+    host_notification_options       d,u,r
+    service_notification_commands   sentinel-notify-service-by-email
+    host_notification_commands      sentinel-notify-host-by-email
+}
+
+define contactgroup {
+    contactgroup_name   sentinel-admins
+    alias               Sentinel Administrators
+    members             sentinel-admin
+}

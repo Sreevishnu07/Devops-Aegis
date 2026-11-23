@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# Root-owned, narrowly-scoped recovery wrapper invoked by Nagios through sudo.
+set -Eeuo pipefail
+
+readonly CONFIG_FILE="/etc/sentinel/recovery.conf"
+readonly ACTIVE_FILE="/var/lib/sentinel/active-environment"
+readonly LAST_ATTEMPT_FILE="/var/lib/sentinel/last-recovery-at"
+readonly LOCK_FILE="/run/lock/sentinel-recovery.lock"
+readonly LOG_FILE="/var/log/sentinel-recovery.log"
+readonly REPO_DIR="/home/ubuntu/sentinel"
+readonly ANSIBLE_DIR="${REPO_DIR}/ansible"
+readonly ANSIBLE_PLAYBOOK="/home/ubuntu/.venvs/ansible/bin/ansible-playbook"
+readonly ANSIBLE_CONFIG_FILE="${ANSIBLE_DIR}/ansible.cfg"
+
+log() {
+  local message="$*"
+  printf '%s %s\n' "$(date --iso-8601=seconds)" "$message" >> "$LOG_FILE"
+  logger -t sentinel-recovery -- "$message" || true
+}
+
+fail() {
+  log "ERROR: $*"
+  exit 1
+}
+
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "sentinel-recover must be invoked through the root-owned sudo rule" >&2
+  exit 1
+fi
+
+if [[ "$#" -ne 5 ]]; then
+  fail "Expected: sentinel-recover <service|host> <host> <state> <state-type> <attempt>"
+fi
+
+event_type="$1"
+event_host="$2"
+event_state="$3"
+event_state_type="$4"
+event_attempt="$5"
+
+# Nagios event handlers can run for SOFT changes and recoveries too. Only a
+# confirmed HARD failure is eligible for automatic traffic failover.
+case "$event_type:$event_state" in
+  service:CRITICAL) ;;
+  host:DOWN|host:UNREACHABLE) ;;
+  *)
+    log "Ignoring non-problem event: type=${event_type} host=${event_host} state=${event_state} type=${event_state_type} attempt=${event_attempt}"
+    exit 0
+    ;;
+esac
+
+if [[ "$event_state_type" != "HARD" ]]; then
+  log "Ignoring non-HARD event: host=${event_host} state=${event_state} type=${event_state_type} attempt=${event_attempt}"
+  exit 0
+fi
+
+case "$event_host" in
+  sentinel-blue)
+    failed_environment="blue"
+    candidate_environment="green"
+    ;;
+  sentinel-green)
+    failed_environment="green"
+    candidate_environment="blue"
+    ;;
+  *)
+    log "Ignoring event for non-application host: ${event_host}"
+    exit 0
+    ;;
+esac
+
+if [[ ! -r "$CONFIG_FILE" ]]; then
+  fail "Recovery configuration missing: ${CONFIG_FILE}"
+fi
+# The file is root-owned and installed mode 0640. It contains only private IPs
+# and tuning values, not credentials.
+# shellcheck disable=SC1090
+source "$CONFIG_FILE"
+
+: "${BLUE_IP:?BLUE_IP is required in ${CONFIG_FILE}}"
+: "${GREEN_IP:?GREEN_IP is required in ${CONFIG_FILE}}"
+: "${APP_PORT:=8000}"
+: "${RECOVERY_COOLDOWN_SECONDS:=300}"
+
+case "$candidate_environment" in
+  blue) candidate_ip="$BLUE_IP" ;;
+  green) candidate_ip="$GREEN_IP" ;;
+esac
+case "$failed_environment" in
+  blue) active_ip="$BLUE_IP" ;;
+  green) active_ip="$GREEN_IP" ;;
+esac
+if [[ ! "$APP_PORT" =~ ^[0-9]+$ || ! "$RECOVERY_COOLDOWN_SECONDS" =~ ^[0-9]+$ ]]; then
+  fail "APP_PORT and RECOVERY_COOLDOWN_SECONDS must be non-negative integers"
+fi
+
+if [[ ! -r "$ACTIVE_FILE" ]]; then
+  fail "Active-environment state file is missing; refusing automatic failover"
+fi
+active_environment="$(tr -d '[:space:]' < "$ACTIVE_FILE")"
+if [[ "$active_environment" != "blue" && "$active_environment" != "green" ]]; then
+  fail "Invalid active-environment value '${active_environment}'; refusing failover"
+fi
+
+# A failure in the standby must alert the administrator but must not switch
+# traffic away from the healthy active environment.
+if [[ "$active_environment" != "$failed_environment" ]]; then
+  log "No failover: ${event_host} (${failed_environment}) is not active; current active=${active_environment}"
+  exit 0
+fi
+
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  log "Recovery already in progress; duplicate event ignored for ${event_host}"
+  exit 0
+fi
+
+now="$(date +%s)"
+if [[ -r "$LAST_ATTEMPT_FILE" ]]; then
+  last_attempt="$(cat "$LAST_ATTEMPT_FILE" 2>/dev/null || echo 0)"
+  if [[ "$last_attempt" =~ ^[0-9]+$ ]] && (( now - last_attempt < RECOVERY_COOLDOWN_SECONDS )); then
+    log "Cooldown active; refusing repeated failover attempt for ${event_host}"
+    exit 0
+  fi
+fi
+
+# A HARD NRPE/host alert can mean the monitoring agent is broken while the
+# application itself is still healthy. Probe the active app directly from ops
+# before failing over, so monitoring-channel failures do not cause false switches.
+active_url="http://${active_ip}:${APP_PORT}/health"
+if active_payload="$(curl --silent --show-error --fail --connect-timeout 2 --max-time 5 "$active_url" 2>/dev/null)"; then
+  if printf '%s' "$active_payload" | python3 -c '
+import json, sys
+expected = sys.argv[1]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if data.get("status") == "healthy" and data.get("environment") == expected else 1)
+' "$failed_environment"; then
+    log "No failover: NRPE/host alert fired, but active ${failed_environment} application health is still good"
+    exit 0
+  fi
+fi
+
+candidate_url="http://${candidate_ip}:${APP_PORT}/health"
+candidate_payload="$(curl --silent --show-error --fail --connect-timeout 2 --max-time 5 "$candidate_url")" || fail "Standby ${candidate_environment} health endpoint is unreachable; active traffic unchanged"
+
+if ! printf '%s' "$candidate_payload" | python3 -c '
+import json, sys
+expected = sys.argv[1]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if data.get("status") == "healthy" and data.get("environment") == expected else 1)
+' "$candidate_environment"; then
+  fail "Standby ${candidate_environment} did not return healthy status and matching environment identity; active traffic unchanged"
+fi
+
+# Record the attempt before invoking Ansible so a failed operation cannot loop.
+printf '%s\n' "$now" > "$LAST_ATTEMPT_FILE"
+chmod 0640 "$LAST_ATTEMPT_FILE"
+log "Starting automatic traffic failover: failed=${failed_environment}, candidate=${candidate_environment}, trigger=${event_type}, attempt=${event_attempt}"
+
+if [[ ! -x "$ANSIBLE_PLAYBOOK" || ! -f "$ANSIBLE_CONFIG_FILE" || ! -d "$ANSIBLE_DIR" ]]; then
+  fail "Ansible controller files are missing under ${REPO_DIR}"
+fi
+
+if ! timeout 150s runuser -u ubuntu -- env \
+  HOME=/home/ubuntu \
+  ANSIBLE_CONFIG="$ANSIBLE_CONFIG_FILE" \
+  PATH="/home/ubuntu/.venvs/ansible/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  "$ANSIBLE_PLAYBOOK" \
+  -i "$ANSIBLE_DIR/inventory/hosts.ini" \
+  "$ANSIBLE_DIR/playbooks/switch.yml" \
+  --extra-vars "target_environment=${candidate_environment}"; then
+  fail "Ansible traffic switch to ${candidate_environment} failed; inspect Ansible and Nginx logs"
+fi
+
+active_after="$(tr -d '[:space:]' < "$ACTIVE_FILE" 2>/dev/null || true)"
+if [[ "$active_after" != "$candidate_environment" ]]; then
+  fail "Ansible returned success but active state is '${active_after}', expected '${candidate_environment}'"
+fi
+
+routed_payload="$(curl --silent --show-error --fail --connect-timeout 2 --max-time 5 http://127.0.0.1/health)" || fail "Post-switch routed health endpoint failed"
+if ! printf '%s' "$routed_payload" | python3 -c '
+import json, sys
+expected = sys.argv[1]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if data.get("status") == "healthy" and data.get("environment") == expected else 1)
+' "$candidate_environment"; then
+  fail "Post-switch /health response does not match ${candidate_environment}"
+fi
+
+version_payload="$(curl --silent --show-error --fail --connect-timeout 2 --max-time 5 http://127.0.0.1/version)" || fail "Post-switch routed version endpoint failed"
+if ! printf '%s' "$version_payload" | python3 -c '
+import json, sys
+expected = sys.argv[1]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if data.get("environment") == expected else 1)
+' "$candidate_environment"; then
+  fail "Post-switch /version response does not identify ${candidate_environment}"
+fi
+
+log "SUCCESS: active traffic is now on ${candidate_environment}; health and version endpoints verified"
+exit 0
