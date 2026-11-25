@@ -1,4 +1,3 @@
-# Managed by Puppet. Local edits will be reverted on the next Puppet run.
 project = <%= $project_name %>
 environment = <%= $environment %>
 node_role = <%= $node_role %>
