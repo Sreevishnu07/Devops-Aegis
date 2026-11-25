@@ -1,0 +1,11 @@
+[Unit]
+Description=Apply Sentinel masterless Puppet baseline
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/puppetlabs/bin/puppet apply --hiera_config=/opt/sentinel/puppet/hiera.yaml --modulepath=/opt/sentinel/puppet/modules /opt/sentinel/puppet/manifests/site.pp
+TimeoutStartSec=300

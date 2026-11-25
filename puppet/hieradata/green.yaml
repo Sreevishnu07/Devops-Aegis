@@ -1,0 +1,5 @@
+---
+"sentinel_baseline::node_role": "application-green"
+"sentinel_baseline::role_packages":
+  - python3
+  - python3-venv

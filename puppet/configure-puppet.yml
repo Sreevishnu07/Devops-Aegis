@@ -1,0 +1,180 @@
+---
+- name: Install Puppet Core agent and apply the Sentinel masterless baseline
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    # Puppet Core 9 is the current maintained track. Jammy is Ubuntu 22.04.
+    puppet_release_deb_url: "https://apt-puppetcore.puppet.com/public/puppet9-release-jammy.deb"
+    puppet_release_deb_path: "/tmp/puppet9-release-jammy.deb"
+    puppet_forge_api_key: "{{ lookup('env', 'PUPPET_FORGE_API_KEY') }}"
+    puppet_auth_file: "/etc/apt/auth.conf.d/apt-puppetcore-puppet.conf"
+    puppet_code_source: "{{ playbook_dir }}/../../puppet/"
+    puppet_code_destination: "/opt/sentinel/puppet"
+    puppet_binary: "/opt/puppetlabs/bin/puppet"
+    puppet_modulepath: "/opt/sentinel/puppet/modules"
+    puppet_hiera_config: "/opt/sentinel/puppet/hiera.yaml"
+    puppet_manifest: "/opt/sentinel/puppet/manifests/site.pp"
+    puppet_node_roles:
+      sentinel-ops: operations
+      sentinel-blue: blue
+      sentinel-green: green
+    puppet_node_role: "{{ puppet_node_roles[inventory_hostname] }}"
+
+  pre_tasks:
+    - name: Require a Forge API key from the current shell environment
+      ansible.builtin.assert:
+        that:
+          - puppet_forge_api_key | length > 0
+        fail_msg: >-
+          Export PUPPET_FORGE_API_KEY in this shell after accepting the Puppet Core
+          EULA and enabling MFA on your Puppet Forge account.
+      no_log: true
+
+    - name: Ensure this play targets the expected Ubuntu 22.04 Sentinel nodes
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Ubuntu'
+          - ansible_facts.distribution_version is version('22.04', '==')
+          - inventory_hostname in puppet_node_roles
+        fail_msg: "This Puppet bundle expects the three named Ubuntu 22.04 Sentinel hosts."
+
+  tasks:
+    - name: Install repository download prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - wget
+        state: present
+        update_cache: true
+
+    - name: Download Puppet Core 9 repository package for Ubuntu Jammy
+      ansible.builtin.get_url:
+        url: "{{ puppet_release_deb_url }}"
+        dest: "{{ puppet_release_deb_path }}"
+        mode: "0644"
+
+    - name: Enable the signed Puppet Core 9 APT repository
+      ansible.builtin.apt:
+        deb: "{{ puppet_release_deb_path }}"
+        state: present
+
+    - name: Configure root-only Puppet Forge repository authentication
+      ansible.builtin.copy:
+        dest: "{{ puppet_auth_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          machine apt-puppetcore.puppet.com
+          login forge-key
+          password {{ puppet_forge_api_key }}
+      no_log: true
+
+    - name: Refresh APT metadata after enabling Puppet Core repository
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Install Puppet agent (includes puppet apply, Facter and Hiera)
+      ansible.builtin.apt:
+        name: puppet-agent
+        state: present
+
+    - name: Verify installed Puppet version
+      ansible.builtin.command:
+        argv:
+          - "{{ puppet_binary }}"
+          - --version
+      register: puppet_version
+      changed_when: false
+
+    - name: Display installed Puppet version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: Puppet {{ puppet_version.stdout }} installed (masterless mode)."
+
+    - name: Copy Sentinel Puppet code from the Operations checkout to this node
+      ansible.builtin.copy:
+        src: "{{ puppet_code_source }}"
+        dest: "{{ puppet_code_destination }}/"
+        owner: root
+        group: root
+        mode: "0644"
+        directory_mode: "0755"
+
+    - name: Create Facter external facts directory
+      ansible.builtin.file:
+        path: /etc/puppetlabs/facter/facts.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Set the Sentinel node role as a Facter external fact
+      ansible.builtin.copy:
+        dest: /etc/puppetlabs/facter/facts.d/sentinel_role.txt
+        owner: root
+        group: root
+        mode: "0644"
+        content: "sentinel_role={{ puppet_node_role }}\n"
+
+    - name: Verify the role fact used by Hiera
+      ansible.builtin.command:
+        argv:
+          - /opt/puppetlabs/bin/facter
+          - sentinel_role
+      register: sentinel_role_fact
+      changed_when: false
+      failed_when: sentinel_role_fact.stdout | trim != puppet_node_role
+
+    - name: Preview Sentinel Puppet changes without modifying the node
+      ansible.builtin.command:
+        argv:
+          - "{{ puppet_binary }}"
+          - apply
+          - --noop
+          - --detailed-exitcodes
+          - "--hiera_config={{ puppet_hiera_config }}"
+          - "--modulepath={{ puppet_modulepath }}"
+          - "{{ puppet_manifest }}"
+      register: puppet_preview_result
+      changed_when: false
+      failed_when: puppet_preview_result.rc not in [0, 2]
+
+    - name: Apply Sentinel masterless Puppet baseline
+      ansible.builtin.command:
+        argv:
+          - "{{ puppet_binary }}"
+          - apply
+          - "--detailed-exitcodes"
+          - "--hiera_config={{ puppet_hiera_config }}"
+          - "--modulepath={{ puppet_modulepath }}"
+          - "{{ puppet_manifest }}"
+      register: puppet_apply_result
+      changed_when: puppet_apply_result.rc == 2
+      failed_when: puppet_apply_result.rc not in [0, 2]
+
+    - name: Show Puppet apply result
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: {{ 'baseline changed and enforced' if puppet_apply_result.rc == 2
+          else 'already compliant; no changes required' }}.
+
+    - name: Verify Sentinel Puppet baseline file contains this node role
+      ansible.builtin.command:
+        argv:
+          - /bin/grep
+          - -Fx
+          - "node_role = {{ 'operations' if inventory_hostname == 'sentinel-ops' else 'application-' ~ puppet_node_role }}"
+          - /etc/sentinel/puppet-baseline.conf
+      changed_when: false
+
+    - name: Verify the masterless enforcement timer is enabled
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemctl
+          - is-enabled
+          - sentinel-puppet-apply.timer
+      register: puppet_timer_enabled
+      changed_when: false
+      failed_when: puppet_timer_enabled.stdout | trim != 'enabled'

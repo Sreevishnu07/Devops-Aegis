@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Sentinel Puppet baseline every hour
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+Persistent=true
+Unit=sentinel-puppet-apply.service
+
+[Install]
+WantedBy=timers.target

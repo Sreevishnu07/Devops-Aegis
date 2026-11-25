@@ -1,0 +1,7 @@
+---
+"sentinel_baseline::project_name": "sentinel"
+"sentinel_baseline::environment": "dev"
+"sentinel_baseline::baseline_version": "1.0.0"
+"sentinel_baseline::base_packages":
+  - curl
+  - jq

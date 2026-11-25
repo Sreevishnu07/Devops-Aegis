@@ -1,0 +1,6 @@
+---
+"sentinel_baseline::node_role": "operations"
+"sentinel_baseline::role_packages":
+  - git
+  - python3
+  - python3-venv
