@@ -43,7 +43,6 @@ class sentinel_baseline (
     require => File['/etc/sentinel'],
   }
 
-  # A small masterless enforcement timer. It runs puppet apply locally every hour.
   file { '/etc/systemd/system/sentinel-puppet-apply.service':
     ensure  => file,
     owner   => 'root',
