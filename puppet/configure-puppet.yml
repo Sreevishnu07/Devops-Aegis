@@ -5,7 +5,6 @@
   gather_facts: true
 
   vars:
-    # Puppet Core 9 is the current maintained track. Jammy is Ubuntu 22.04.
     puppet_release_deb_url: "https://apt-puppetcore.puppet.com/public/puppet9-release-jammy.deb"
     puppet_release_deb_path: "/tmp/puppet9-release-jammy.deb"
     puppet_forge_api_key: "{{ lookup('env', 'PUPPET_FORGE_API_KEY') }}"
