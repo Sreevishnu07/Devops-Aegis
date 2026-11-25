@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Root-owned, narrowly-scoped recovery wrapper invoked by Nagios through sudo.
 set -Eeuo pipefail
 
 readonly CONFIG_FILE="/etc/sentinel/recovery.conf"
@@ -38,8 +37,6 @@ event_state="$3"
 event_state_type="$4"
 event_attempt="$5"
 
-# Nagios event handlers can run for SOFT changes and recoveries too. Only a
-# confirmed HARD failure is eligible for automatic traffic failover.
 case "$event_type:$event_state" in
   service:CRITICAL) ;;
   host:DOWN|host:UNREACHABLE) ;;
@@ -72,9 +69,7 @@ esac
 if [[ ! -r "$CONFIG_FILE" ]]; then
   fail "Recovery configuration missing: ${CONFIG_FILE}"
 fi
-# The file is root-owned and installed mode 0640. It contains only private IPs
-# and tuning values, not credentials.
-# shellcheck disable=SC1090
+
 source "$CONFIG_FILE"
 
 : "${BLUE_IP:?BLUE_IP is required in ${CONFIG_FILE}}"
@@ -102,8 +97,7 @@ if [[ "$active_environment" != "blue" && "$active_environment" != "green" ]]; th
   fail "Invalid active-environment value '${active_environment}'; refusing failover"
 fi
 
-# A failure in the standby must alert the administrator but must not switch
-# traffic away from the healthy active environment.
+
 if [[ "$active_environment" != "$failed_environment" ]]; then
   log "No failover: ${event_host} (${failed_environment}) is not active; current active=${active_environment}"
   exit 0
@@ -124,9 +118,6 @@ if [[ -r "$LAST_ATTEMPT_FILE" ]]; then
   fi
 fi
 
-# A HARD NRPE/host alert can mean the monitoring agent is broken while the
-# application itself is still healthy. Probe the active app directly from ops
-# before failing over, so monitoring-channel failures do not cause false switches.
 active_url="http://${active_ip}:${APP_PORT}/health"
 if active_payload="$(curl --silent --show-error --fail --connect-timeout 2 --max-time 5 "$active_url" 2>/dev/null)"; then
   if printf '%s' "$active_payload" | python3 -c '
@@ -158,7 +149,6 @@ sys.exit(0 if data.get("status") == "healthy" and data.get("environment") == exp
   fail "Standby ${candidate_environment} did not return healthy status and matching environment identity; active traffic unchanged"
 fi
 
-# Record the attempt before invoking Ansible so a failed operation cannot loop.
 printf '%s\n' "$now" > "$LAST_ATTEMPT_FILE"
 chmod 0640 "$LAST_ATTEMPT_FILE"
 log "Starting automatic traffic failover: failed=${failed_environment}, candidate=${candidate_environment}, trigger=${event_type}, attempt=${event_attempt}"
