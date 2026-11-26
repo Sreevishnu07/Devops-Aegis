@@ -1,4 +1,7 @@
-# AEGIS - A production-inspired journey close to heart, fueled by my burning passion for DevOps.
+<h1 align="center">
+  AEGIS - A production-inspired journey close to heart,
+  fueled by my burning passion for DevOps
+</h1>
 
 ### Self-Healing Blue–Green Deployment Platform on AWS
 
