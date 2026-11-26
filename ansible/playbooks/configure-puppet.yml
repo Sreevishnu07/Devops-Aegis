@@ -92,6 +92,14 @@
       ansible.builtin.debug:
         msg: "{{ inventory_hostname }}: Puppet {{ puppet_version.stdout }} installed (masterless mode)."
 
+    - name: Deploy Sentinel Puppet code and Hiera data
+      ansible.builtin.copy:
+        src: "{{ puppet_code_source }}"
+        dest: "{{ puppet_code_destination }}/"
+        owner: root
+        group: root
+        mode: preserve
+
     - name: Configure Puppet to use Sentinel's Hiera configuration
       ansible.builtin.ini_file:
         path: /etc/puppetlabs/puppet/puppet.conf
