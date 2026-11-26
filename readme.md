@@ -599,4 +599,6 @@ Centralize logs and metrics, retain deployment and recovery audit events, and ad
 <p align="center">
   <strong>AEGIS</strong><br/>
   <em>A deployment is not complete when a release is copied. It is complete when the route is verified, the system is observable, and recovery has a safe path.</em>
+  <br/><br/>
+  <sub>Maintained with passion by Vishnu</sub>
 </p>
