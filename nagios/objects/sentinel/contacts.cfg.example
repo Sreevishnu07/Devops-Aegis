@@ -1,11 +1,8 @@
-# The installer generates contacts.cfg locally from an email address prompt.
-# Do not commit a real email address if you prefer to keep it out of GitHub.
-
 define contact {
     use                             generic-contact
     contact_name                    sentinel-admin
     alias                           Sentinel Administrator
-    email                           REPLACE_WITH_YOUR_EMAIL
+    email                           rationalmedic@gmail.com
     service_notification_period     24x7
     host_notification_period        24x7
     service_notification_options    w,u,c,r
