@@ -1,5 +1,5 @@
 
-# Sentinel - Self-Healing Blue-Green Deployment Platform on AWS
+# AEGIS - Self-Healing Blue-Green Deployment Platform on AWS
 
 A cloud-based DevOps platform demonstrating automated infrastructure provisioning, Blue-Green application deployment, configuration management, continuous monitoring, and automated recovery.
 
