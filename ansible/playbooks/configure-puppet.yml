@@ -92,14 +92,15 @@
       ansible.builtin.debug:
         msg: "{{ inventory_hostname }}: Puppet {{ puppet_version.stdout }} installed (masterless mode)."
 
-    - name: Copy Sentinel Puppet code from the Operations checkout to this node
-      ansible.builtin.copy:
-        src: "{{ puppet_code_source }}"
-        dest: "{{ puppet_code_destination }}/"
+    - name: Configure Puppet to use Sentinel's Hiera configuration
+      ansible.builtin.ini_file:
+        path: /etc/puppetlabs/puppet/puppet.conf
+        section: main
+        option: hiera_config
+        value: "{{ puppet_hiera_config }}"
         owner: root
         group: root
         mode: "0644"
-        directory_mode: "0755"
 
     - name: Create Facter external facts directory
       ansible.builtin.file:
