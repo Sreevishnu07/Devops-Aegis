@@ -1,0 +1,165 @@
+name: AEGIS CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  application-tests:
+    name: Application tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: application/requirements-dev.txt
+
+      - name: Install application test dependencies
+        run: python -m pip install -r application/requirements-dev.txt
+
+      - name: Run application tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/application
+        run: python -m pytest -q application/tests
+
+      - name: Compile application and Nagios Python plugins
+        run: python -m compileall -q application nagios/plugins
+
+  terraform-validation:
+    name: Terraform formatting and validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.17.2"
+          terraform_wrapper: false
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive infrastructure
+
+      - name: Initialize and validate main infrastructure
+        working-directory: infrastructure
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate -no-color
+
+      - name: Initialize and validate bootstrap-state configuration
+        working-directory: infrastructure/bootstrap-state
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate -no-color
+
+  automation-and-config-validation:
+    name: Ansible, Hiera, and script validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "ansible-core==2.21.6" "PyYAML>=6,<7"
+
+      - name: Syntax-check every Ansible playbook
+        working-directory: ansible
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          playbooks=(playbooks/*.yml)
+          if (( ${#playbooks[@]} == 0 )); then
+            echo "No Ansible playbooks were found." >&2
+            exit 1
+          fi
+          for playbook in "${playbooks[@]}"; do
+            echo "Checking ${playbook}"
+            ansible-playbook --syntax-check \
+              -i inventory/hosts.ini.example \
+              "${playbook}"
+          done
+
+      - name: Validate Hiera YAML and Sentinel role mappings
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          puppet_dir = Path("puppet")
+          hiera_file = puppet_dir / "hiera.yaml"
+          hiera = yaml.safe_load(hiera_file.read_text(encoding="utf-8"))
+
+          if hiera.get("version") != 5:
+              raise SystemExit("Expected Hiera configuration version 5")
+          if hiera.get("defaults", {}).get("datadir") != "hieradata":
+              raise SystemExit("Hiera datadir must be 'hieradata'")
+
+          expected_paths = ["%{facts.sentinel_role}.yaml", "common.yaml"]
+          actual_paths = [entry.get("path") for entry in hiera.get("hierarchy", [])]
+          if actual_paths != expected_paths:
+              raise SystemExit(
+                  f"Unexpected Hiera hierarchy: {actual_paths!r}; "
+                  f"expected {expected_paths!r}"
+              )
+
+          data_dir = puppet_dir / "hieradata"
+          for yaml_file in [hiera_file, *sorted(data_dir.glob("*.yaml"))]:
+              yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+
+          expected_roles = {
+              "operations": "operations",
+              "blue": "application-blue",
+              "green": "application-green",
+          }
+          for role, expected_value in expected_roles.items():
+              role_file = data_dir / f"{role}.yaml"
+              role_data = yaml.safe_load(role_file.read_text(encoding="utf-8"))
+              actual_value = role_data.get("sentinel_baseline::node_role")
+              if actual_value != expected_value:
+                  raise SystemExit(
+                      f"{role_file}: expected node_role {expected_value!r}, "
+                      f"found {actual_value!r}"
+                  )
+
+          required_files = [
+              puppet_dir / "manifests/site.pp",
+              puppet_dir / "modules/sentinel_baseline/manifests/init.pp",
+              puppet_dir / "modules/sentinel_baseline/templates/puppet-baseline.conf.epp",
+          ]
+          missing = [str(path) for path in required_files if not path.is_file()]
+          if missing:
+              raise SystemExit("Missing Puppet files: " + ", ".join(missing))
+
+          print("Hiera YAML, role mappings, and Puppet bundle layout are valid.")
+          PY
+
+      - name: Check Nagios shell scripts
+        run: |
+          set -euo pipefail
+          bash -n nagios/scripts/install-core-config.sh
+          bash -n nagios/scripts/sentinel-recover
+
+      - name: Compile Nagios Python plugin
+        run: python -m compileall -q nagios/plugins
