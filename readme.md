@@ -24,6 +24,7 @@ Its defining feature is not simply that it can switch between two application en
 - [Automatic recovery: the closed loop](#automatic-recovery-the-closed-loop)
 - [What each component owns](#what-each-component-owns)
 - [Implementation details](#implementation-details)
+- [IAM and Systems Manager access](#iam-and-systems-manager-access)
 - [Repository layout](#repository-layout)
 - [Operational walkthrough](#operational-walkthrough)
 - [Validation and demonstrated results](#validation-and-demonstrated-results)
@@ -321,6 +322,19 @@ Terraform provisions the AWS foundation in Mumbai:
 - An S3 backend for the main Terraform state, with bucket versioning, server-side encryption, public-access blocking and a TLS-only bucket policy. State locking uses the S3 lock-file mechanism.
 
 The bootstrap state-bucket configuration is maintained separately from the main infrastructure configuration. Backend configuration containing environment-specific values is supplied locally rather than committed.
+
+### IAM and Systems Manager access
+
+AEGIS uses an EC2 instance role and instance profile to give its three instances an AWS identity for Systems Manager. Terraform creates the role and instance profile and associates the profile with the Operations, Blue and Green instances. The role has the AWS-managed `AmazonSSMManagedInstanceCore` policy attached.
+
+The SSM Agent is installed and started during instance bootstrap. With the instance profile attached and the agent running, all three instances register as Systems Manager managed nodes and can be accessed through **AWS Systems Manager Session Manager**.
+
+This establishes two distinct access paths:
+
+- **Operator access:** Session Manager is used to open an interactive shell on the EC2 instances, including the Operations node, without depending on a direct inbound SSH session from the operator's workstation.
+- **Ansible orchestration:** Ansible runs from the Operations node and connects to Blue and Green over their private IP addresses using SSH. Its private key remains on Operations and is not stored in the repository.
+
+The instance profile is the runtime identity attached to the EC2 instances; it is separate from the human operator's AWS identity. No long-lived AWS access keys are embedded in the application or Ansible configuration.
 
 ### Application and traffic layer — Flask, Gunicorn and Nginx
 
