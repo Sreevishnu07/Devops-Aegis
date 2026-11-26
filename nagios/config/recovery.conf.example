@@ -1,5 +1,3 @@
-# Sentinel recovery settings for this AWS environment.
-# These are private VPC addresses, not credentials.
 BLUE_IP="10.20.1.222"
 GREEN_IP="10.20.2.253"
 APP_PORT="8000"
